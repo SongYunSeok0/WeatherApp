@@ -26,3 +26,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "weather"
 include(":app")
+
+// CITY_SEED_URL=https://gist.githubusercontent.com/SongYunSeok0/f55bc5ef05569e3746f8effee36257b7/raw/099b4a940dd6d193b656d1534f48e41f92e3987c/cities.json
+// OWM_API_KEY=1dae27246742c2a0734dc5c4f62a5a5e

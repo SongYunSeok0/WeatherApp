@@ -1,10 +1,13 @@
 package com.example.weather
 
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
+// ---------- DTO ----------
 data class WeatherDTO(
     val name: String,
     val weather: List<Weather>,
@@ -25,6 +28,7 @@ data class GeoResult(
     val local_names: Map<String, String>?
 )
 
+// ---------- API ----------
 interface WeatherApi {
     @GET("geo/1.0/direct")
     suspend fun geocode(
@@ -51,20 +55,30 @@ interface WeatherApi {
     ): WeatherDTO
 }
 
-object RetrofitClient {
+private object ApiProvider {
     private const val BASE_URL = "https://api.openweathermap.org/"
 
-    private val client = okhttp3.OkHttpClient.Builder().build()
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
+            .build()
+    }
 
-    val api: WeatherApi = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
-        .create(WeatherApi::class.java)
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    val api: WeatherApi by lazy { retrofit.create(WeatherApi::class.java) }
 }
 
-class WeatherRepository(private val api: WeatherApi = RetrofitClient.api) {
+object WeatherRepository {
+    private val api = ApiProvider.api
 
     suspend fun getCurrentWithGeo(city: String): Pair<WeatherDTO, GeoResult?> {
         val key = BuildConfig.OWM_API_KEY
