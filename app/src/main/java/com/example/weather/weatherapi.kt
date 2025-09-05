@@ -6,6 +6,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
+import com.example.weather.BuildConfig
 
 // ---------- DTO ----------
 data class WeatherDTO(

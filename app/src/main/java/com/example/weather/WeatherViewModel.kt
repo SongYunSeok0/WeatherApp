@@ -7,18 +7,25 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
+
 import com.example.weather.data.AppDatabase
 import com.example.weather.data.City
 import com.example.weather.data.CityRepository
 import com.example.weather.data.CitySeedProvider
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+
+// 이 파일에서 사용하는 DTO/Repo
+import com.example.weather.WeatherDTO
+import com.example.weather.GeoResult
+import com.example.weather.WeatherRepository
 
 class WeatherViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -58,7 +65,12 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         cityRepo.togglePinByName(name)
     }
 
-    // ✅ 싱글턴 레포지토리 사용
+    fun persistPinnedOrder(ordered: List<City>) = viewModelScope.launch(Dispatchers.IO) {
+        ordered.forEachIndexed { index, city ->
+            cityRepo.updateOrder(city.id, index)
+        }
+    }
+
     private val repo = WeatherRepository
 
     private val _query = MutableLiveData("")
@@ -115,38 +127,46 @@ class WeatherViewModel(app: Application) : AndroidViewModel(app) {
         preloadCities(cities.map { it.name })
     }
 
-    // 병렬 프리로드 + 동시 4개 제한
     private fun preloadCities(cities: List<String>) {
         if (cities.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
+            // 현재 캐시 복사
             val disp = _cityDisplayMap.value?.toMutableMap() ?: mutableMapOf()
             val wmap = _cityWeatherMap.value?.toMutableMap() ?: mutableMapOf()
 
-            val targets = cities.filter { disp[it] == null || wmap[it] == null }
+            // 캐시에 없는 대상만
+            val targets = cities
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .filter { disp[it] == null || wmap[it] == null }
+
             if (targets.isEmpty()) return@launch
 
             val sem = Semaphore(4)
-            coroutineScope {
-                targets.map { c ->
+
+            supervisorScope {
+                targets.map { city ->
                     async {
                         sem.withPermit {
                             try {
-                                val (w, g) = repo.getCurrentWithGeo(c)
+                                val (w, g) = repo.getCurrentWithGeo(city)
                                 val cityKo = g?.local_names?.get("ko") ?: g?.name ?: w.name
                                 val countryKr = getCountryNameByLocale(g?.country)
-                                synchronized(disp) {
-                                    disp[c] = if (!countryKr.isNullOrEmpty()) "$cityKo, $countryKr" else cityKo
-                                }
-                                synchronized(wmap) { wmap[c] = w }
+                                disp[city] = if (!countryKr.isNullOrEmpty()) "$cityKo, $countryKr" else cityKo
+                                wmap[city] = w
                             } catch (_: Exception) {
-                                synchronized(disp) { if (disp[c] == null) disp[c] = c }
+                                disp.putIfAbsent(city, city)
                             }
                         }
                     }
-                }.awaitAll()
+                }.forEach { it.await() }
             }
-            _cityDisplayMap.postValue(disp)
-            _cityWeatherMap.postValue(wmap)
+
+            withContext(Dispatchers.Main) {
+                _cityDisplayMap.value = disp
+                _cityWeatherMap.value = wmap
+            }
         }
     }
 }
